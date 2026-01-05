@@ -1,0 +1,1410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Volleyball Lineup Board</title>
+
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #f4f4f4;
+    margin: 20px;
+  }
+
+  #controls {
+    margin-bottom: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .controls-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  button {
+    padding: 8px 14px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  #layout {
+    display: flex;
+    gap: 20px;
+  }
+
+  /* COURT (orange) */
+  #court {
+    width: 600px;
+    height: 360px;
+    background: #ff8c32; /* orange */
+    border: 4px solid #333;
+    position: relative;
+  }
+
+  /* NET AT TOP (for board view only) */
+  #net {
+    position: absolute;
+    top: 40px;
+    left: 0;
+    width: 100%;
+    height: 6px;
+    background: white;
+  }
+
+  #net::after {
+    content: "";
+    position: absolute;
+    top: -8px;
+    left: 0;
+    width: 100%;
+    height: 20px;
+    border-top: 2px solid #333;
+    border-bottom: 2px solid #333;
+  }
+
+  /* ZONES (invisible, used for snapping/rotation) */
+  .zone {
+    position: absolute;
+    width: 160px;
+    height: 90px;
+    border: none;
+    pointer-events: none;
+    font-size: 0;
+    line-height: 90px;
+  }
+
+  /* BENCH */
+  #bench {
+    width: 200px;
+    background: #ddd;
+    border: 4px solid #333;
+    padding: 10px;
+    position: relative;
+  }
+
+  #bench h3 {
+    text-align: center;
+    margin-top: 0;
+  }
+
+  /* PLAYERS: default = black background, white text */
+  .player {
+    width: 90px;
+    height: 40px;
+    background: #000000;
+    color: #ffffff;
+    text-align: center;
+    line-height: 40px;
+    border-radius: 20px;
+    cursor: grab;
+    user-select: none;
+    box-sizing: border-box;
+    border: 2px solid #000000;
+  }
+
+  /* Bench layout */
+  .bench-player {
+    position: relative;
+    margin: 10px auto;
+  }
+
+  /* Libero: white background, black text, black border */
+  .player.libero {
+    background: #ffffff;
+    color: #000000;
+    border-color: #000000;
+    font-weight: bold; /* optional */
+  }
+
+  .player input {
+    width: 80px;
+    border: none;
+    text-align: center;
+    font-size: 14px;
+    outline: none;
+    background: transparent;
+    color: inherit;
+  }
+
+  #lineupName, #lineupSelect, #rotationSelect,
+  #rosterName, #rosterSelect {
+    padding: 6px 8px;
+    font-size: 14px;
+  }
+
+  #lineupSelect, #rotationSelect,
+  #rosterSelect {
+    min-width: 90px;
+  }
+</style>
+</head>
+
+<body>
+
+<div id="controls">
+  <!-- ROW 1: Rotation controls + rotate lineup + serve receive toggle -->
+  <div class="controls-row">
+    <span>Rotation:</span>
+    <select id="rotationSelect" onchange="selectRotationChanged()">
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
+      <option value="5">5</option>
+      <option value="6">6</option>
+    </select>
+    <span>/ 6</span>
+
+    <button onclick="previousRotation()">Prev Rotation ⟲</button>
+    <button onclick="nextRotation()">Next Rotation ⟳</button>
+
+    <!-- Rotate lineup (base only) -->
+    <button onclick="rotateLineupBackward()">Rotate Lineup ⟲</button>
+    <button onclick="rotateLineupForward()">Rotate Lineup ⟳</button>
+
+    <label>
+      <input type="checkbox" id="receiveToggle" onchange="toggleReceiveMode()">
+      Serve Receive
+    </label>
+
+    <span style="font-size:12px; opacity:0.8;">
+      (Right-click a player to toggle Libero)
+    </span>
+  </div>
+
+  <!-- ROW 2: Player management + reset/new/auto fill + print -->
+  <div class="controls-row">
+    <button onclick="addPlayer()">Add Player</button>
+    <button onclick="removePlayer()">Remove Player</button>
+    <button onclick="resetCurrentRotation()">Reset Lineup</button>
+    <button onclick="newLineup()">New Lineup</button>
+    <button onclick="autoFillRotations()">Auto Fill Rotations</button>
+    <button onclick="printLineup()">Print Rotations</button>
+  </div>
+
+  <!-- ROW 3: ROSTERS (higher in hierarchy) -->
+  <div class="controls-row">
+    <span>Roster (Team) name:</span>
+    <input id="rosterName" type="text" placeholder="e.g. 12U Blue" />
+
+    <span>Saved rosters:</span>
+    <select id="rosterSelect" onchange="rosterSelectChanged()">
+      <option value="">(none)</option>
+    </select>
+
+    <button onclick="saveRoster()">Save Roster</button>
+    <button onclick="loadRosterToBench()">Load Roster to Bench</button>
+    <button onclick="deleteRoster()">Delete Roster</button>
+  </div>
+
+  <!-- ROW 4: LINEUPS (per roster) + export/import -->
+  <div class="controls-row">
+    <span>Lineup name:</span>
+    <input id="lineupName" type="text" placeholder="e.g. Varsity A" />
+
+    <span>Saved lineups for roster:</span>
+    <select id="lineupSelect">
+      <option value="">(none)</option>
+    </select>
+
+    <button onclick="saveAll()">Save Lineup</button>
+    <button onclick="loadAll()">Load Lineup</button>
+    <button onclick="deleteLineup()">Delete Lineup</button>
+    <button onclick="duplicateLineup()">Duplicate Lineup</button>
+
+    <button onclick="exportLineups()">Export Lineups</button>
+    <button onclick="importLineups()">Import Lineups</button>
+  </div>
+</div>
+
+<div id="layout">
+
+  <!-- COURT -->
+  <div id="court">
+    <div id="net"></div>
+
+    <!-- Zones (invisible) -->
+    <div class="zone" data-zone="4" style="top:70px; left:40px;">4</div>
+    <div class="zone" data-zone="3" style="top:70px; left:220px;">3</div>
+    <div class="zone" data-zone="2" style="top:70px; left:400px;">2</div>
+    <div class="zone" data-zone="5" style="top:200px; left:40px;">5</div>
+    <div class="zone" data-zone="6" style="top:200px; left:220px;">6</div>
+    <div class="zone" data-zone="1" style="top:200px; left:400px;">1</div>
+
+    <!-- Initial lineup -->
+    <div class="player" data-zone="4">OPP</div>
+    <div class="player" data-zone="3">MB</div>
+    <div class="player" data-zone="2">OH</div>
+    <div class="player" data-zone="5">OH</div>
+    <div class="player libero" data-zone="6" data-libero="true">Libero</div>
+    <div class="player" data-zone="1">Setter</div>
+  </div>
+
+  <!-- BENCH -->
+  <div id="bench">
+    <h3>Bench</h3>
+  </div>
+
+</div>
+
+<script>
+  const TOTAL_ROTATIONS = 6;
+  const STORAGE_KEY = "volleyballLineupSets";  // lineups (now tied to rosterName)
+  const LEGACY_KEY = "volleyballRotations";    // older single-lineup format
+  const ROSTER_KEY = "volleyballRosters";      // rosters (team player lists)
+
+  const COURT_WIDTH = 600;
+  const COURT_HEIGHT = 360;
+  const MINI_WIDTH = 260;
+  const MINI_HEIGHT = 160;
+  const NET_TOP_OFFSET = 40; // matches #net { top:40px; }
+
+  let currentRotation = 1;
+  let currentMode = "base"; // "base" or "receive"
+
+  // rotations = { base: {1:[...],...}, receive: {1:[...],...} }
+  let rotations = { base: {}, receive: {} };
+  // lineupSets[name] = { rosterName, rotations, currentRotation, currentMode }
+  let lineupSets = {};
+  // rosterSets[name] = { players: [ "Name1", ... ] }
+  let rosterSets = {};
+  // which roster is "active" right now (controls lineup dropdown)
+  let currentRosterName = null;
+
+  const zonePositions = {};
+  const playerWidth = 90;
+  const playerHeight = 40;
+
+  function normalizeRotationsStructure() {
+    if (!rotations || typeof rotations !== "object") {
+      rotations = { base: {}, receive: {} };
+    }
+    if (!("base" in rotations) && !("receive" in rotations)) {
+      rotations = { base: rotations, receive: {} };
+    }
+    if (!rotations.base) rotations.base = {};
+    if (!rotations.receive) rotations.receive = {};
+  }
+
+  function updateRotationLabel() {
+    const sel = document.getElementById("rotationSelect");
+    if (sel) sel.value = String(currentRotation);
+    const toggle = document.getElementById("receiveToggle");
+    if (toggle) toggle.checked = (currentMode === "receive");
+  }
+
+  function computeZonePositions() {
+    const court = document.getElementById("court");
+    const courtRect = court.getBoundingClientRect();
+
+    document.querySelectorAll(".zone").forEach(zone => {
+      const z = +zone.dataset.zone;
+      const r = zone.getBoundingClientRect();
+      zonePositions[z] = {
+        left: r.left - courtRect.left + (r.width - playerWidth)/2,
+        top:  r.top  - courtRect.top  + (r.height - playerHeight)/2
+      };
+    });
+  }
+
+  function setupPlayer(p) {
+    enableDrag(p);
+    enableEdit(p);
+    enableLiberoToggle(p);
+  }
+
+  function initPlayersFromDOM() {
+    const court = document.getElementById("court");
+    document.querySelectorAll(".player").forEach(p => {
+      if (p.parentElement === court && p.dataset.zone) {
+        const pos = zonePositions[p.dataset.zone];
+        p.style.position = "absolute";
+        p.style.left = pos.left + "px";
+        p.style.top  = pos.top  + "px";
+      } else if (p.parentElement.id === "bench") {
+        p.classList.add("bench-player");
+      }
+      setupPlayer(p);
+    });
+  }
+
+  function captureCurrentRotationState() {
+    normalizeRotationsStructure();
+    const list = Array.from(document.querySelectorAll(".player")).map(p => ({
+      name: p.textContent,
+      parent: p.parentElement.id,
+      zone: p.dataset.zone ? +p.dataset.zone : null,
+      left: p.style.left,
+      top: p.style.top,
+      libero: p.dataset.libero === "true"
+    }));
+    rotations[currentMode][currentRotation] = list;
+  }
+
+  function clearPlayers() {
+    document.querySelectorAll(".player").forEach(p => p.remove());
+  }
+
+  function renderCurrentRotation() {
+    normalizeRotationsStructure();
+    updateRotationLabel();
+    clearPlayers();
+    const court = document.getElementById("court");
+    const bench = document.getElementById("bench");
+
+    const data = rotations[currentMode][currentRotation] || [];
+    data.forEach(item => {
+      const p = document.createElement("div");
+      p.className = "player";
+      p.textContent = item.name;
+
+      if (item.libero) {
+        p.dataset.libero = "true";
+        p.classList.add("libero");
+      }
+
+      if (item.parent === "court") {
+        court.appendChild(p);
+        if (currentMode === "base" && item.zone && zonePositions[item.zone]) {
+          p.dataset.zone = item.zone;
+          const pos = zonePositions[item.zone];
+          p.style.position = "absolute";
+          p.style.left = pos.left + "px";
+          p.style.top  = pos.top  + "px";
+        } else {
+          p.style.position = "absolute";
+          p.style.left = item.left || "0px";
+          p.style.top  = item.top  || "0px";
+          if (currentMode === "base" && item.zone) {
+            p.dataset.zone = item.zone;
+          }
+        }
+      } else {
+        p.classList.add("bench-player");
+        bench.appendChild(p);
+      }
+
+      setupPlayer(p);
+    });
+  }
+
+  function changeRotation(step) {
+    captureCurrentRotationState();
+
+    const prev = currentRotation;
+    currentRotation += step;
+    if (currentRotation < 1) currentRotation = TOTAL_ROTATIONS;
+    if (currentRotation > TOTAL_ROTATIONS) currentRotation = 1;
+
+    normalizeRotationsStructure();
+
+    if (currentMode === "base") {
+      if (!rotations.base[currentRotation]) {
+        rotations.base[currentRotation] = JSON.parse(JSON.stringify(rotations.base[prev] || []));
+      }
+    } else {
+      if (!rotations.receive[currentRotation]) {
+        if (rotations.base[currentRotation]) {
+          rotations.receive[currentRotation] = JSON.parse(JSON.stringify(rotations.base[currentRotation]));
+        } else {
+          rotations.receive[currentRotation] = JSON.parse(JSON.stringify(rotations.receive[prev] || []));
+        }
+      }
+    }
+    renderCurrentRotation();
+  }
+
+  function previousRotation() { changeRotation(-1); }
+  function nextRotation()     { changeRotation( 1); }
+
+  function selectRotationChanged() {
+    captureCurrentRotationState();
+
+    const sel = document.getElementById("rotationSelect");
+    const target = parseInt(sel.value, 10);
+    if (!target || target === currentRotation) return;
+
+    const prev = currentRotation;
+    currentRotation = target;
+
+    normalizeRotationsStructure();
+
+    if (currentMode === "base") {
+      if (!rotations.base[currentRotation]) {
+        rotations.base[currentRotation] = JSON.parse(JSON.stringify(rotations.base[prev] || []));
+      }
+    } else {
+      if (!rotations.receive[currentRotation]) {
+        if (rotations.base[currentRotation]) {
+          rotations.receive[currentRotation] = JSON.parse(JSON.stringify(rotations.base[currentRotation]));
+        } else {
+          rotations.receive[currentRotation] = JSON.parse(JSON.stringify(rotations.receive[prev] || []));
+        }
+      }
+    }
+    renderCurrentRotation();
+  }
+
+  function toggleReceiveMode() {
+    const toggle = document.getElementById("receiveToggle");
+    if (!toggle) return;
+
+    captureCurrentRotationState();
+
+    if (toggle.checked) {
+      currentMode = "receive";
+      normalizeRotationsStructure();
+      if (!rotations.receive[currentRotation]) {
+        rotations.receive[currentRotation] = JSON.parse(JSON.stringify(rotations.base[currentRotation] || []));
+      }
+    } else {
+      currentMode = "base";
+      normalizeRotationsStructure();
+      if (!rotations.base[currentRotation]) {
+        rotations.base[currentRotation] = [];
+      }
+    }
+    renderCurrentRotation();
+  }
+
+  // Rotate the lineup in the current rotation (base only)
+  function rotateLineup(clockwise) {
+    if (currentMode !== "base") {
+      alert("Rotate Lineup only works in Base mode. Turn off Serve Receive to rotate.");
+      return;
+    }
+    computeZonePositions();
+    const court = document.getElementById("court");
+    const players = Array.from(document.querySelectorAll(".player"))
+      .filter(p => p.parentElement === court && p.dataset.zone);
+
+    players.forEach(player => {
+      let z = +player.dataset.zone;
+      let newZone;
+      if (clockwise) {
+        newZone = (z % 6) + 1;
+      } else {
+        newZone = z === 1 ? 6 : z - 1;
+      }
+      player.dataset.zone = newZone;
+      const pos = zonePositions[newZone];
+      if (pos) {
+        player.style.position = "absolute";
+        player.style.left = pos.left + "px";
+        player.style.top  = pos.top  + "px";
+      }
+    });
+
+    captureCurrentRotationState();
+  }
+
+  function rotateLineupBackward() { rotateLineup(true);  }
+  function rotateLineupForward()  { rotateLineup(false); }
+
+  function snapToNearestZone(player) {
+    const court = document.getElementById("court");
+    const courtRect = court.getBoundingClientRect();
+    const rect = player.getBoundingClientRect();
+
+    const playerLeft = rect.left - courtRect.left;
+    const playerTop  = rect.top  - courtRect.top;
+
+    let bestZone = null;
+    let bestDist = Infinity;
+
+    Object.entries(zonePositions).forEach(([zone, pos]) => {
+      const dx = playerLeft - pos.left;
+      const dy = playerTop - pos.top;
+      const dist = dx*dx + dy*dy;
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestZone = +zone;
+      }
+    });
+
+    if (bestZone != null) {
+      const pos = zonePositions[bestZone];
+      player.dataset.zone = bestZone;
+      player.style.position = "absolute";
+      player.style.left = pos.left + "px";
+      player.style.top  = pos.top  + "px";
+    }
+  }
+
+  function handleZoneConflict(player, originalZone) {
+    if (currentMode !== "base") return;
+    const court = document.getElementById("court");
+    const z = player.dataset.zone ? +player.dataset.zone : null;
+    if (!z) return;
+
+    const others = Array.from(court.querySelectorAll(".player"))
+      .filter(p => p !== player && p.dataset.zone && +p.dataset.zone === z);
+
+    if (others.length === 0) return;
+
+    const other = others[0];
+
+    if (originalZone != null && zonePositions[originalZone]) {
+      other.dataset.zone = originalZone;
+      const pos = zonePositions[originalZone];
+      other.style.position = "absolute";
+      other.style.left = pos.left + "px";
+      other.style.top  = pos.top  + "px";
+    } else {
+      const bench = document.getElementById("bench");
+      other.parentElement.removeChild(other);
+      bench.appendChild(other);
+      other.classList.add("bench-player");
+      other.style.position = "relative";
+      other.style.left = "";
+      other.style.top = "";
+      delete other.dataset.zone;
+    }
+  }
+
+  function enableDrag(player) {
+    let startX, startY, offsetX, offsetY;
+    let dragging = false, parentRect;
+    let originalZone = null;
+
+    player.addEventListener("mousedown", e => {
+      if (player.classList.contains("editing")) return;
+      e.preventDefault();
+      startX = e.clientX; startY = e.clientY;
+      originalZone = player.dataset.zone ? +player.dataset.zone : null;
+
+      function move(ev) {
+        const dx = ev.clientX - startX, dy = ev.clientY - startY;
+        if (!dragging) {
+          if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+          dragging = true;
+          const parent = player.parentElement;
+          parentRect = parent.getBoundingClientRect();
+          const r = player.getBoundingClientRect();
+          offsetX = ev.clientX - r.left;
+          offsetY = ev.clientY - r.top;
+          player.style.position = "absolute";
+          player.style.left = (r.left - parentRect.left) + "px";
+          player.style.top  = (r.top  - parentRect.top) + "px";
+          player.style.zIndex = 1000;
+        }
+        player.style.left = (ev.clientX - parentRect.left - offsetX) + "px";
+        player.style.top  = (ev.clientY - parentRect.top  - offsetY) + "px";
+        if (player.parentElement.id === "court" && currentMode === "base") {
+          delete player.dataset.zone;
+        }
+      }
+
+      function up() {
+        document.removeEventListener("mousemove", move);
+        document.removeEventListener("mouseup", up);
+        if (!dragging) return;
+        dragging = false;
+        player.style.zIndex = "";
+
+        const court = document.getElementById("court");
+        const bench = document.getElementById("bench");
+        const cr = court.getBoundingClientRect();
+        const br = bench.getBoundingClientRect();
+        const pr = player.getBoundingClientRect();
+
+        const overCourt = !(pr.right < cr.left || pr.left > cr.right || pr.bottom < cr.top || pr.top > cr.bottom);
+        const overBench = !(pr.right < br.left || pr.left > br.right || pr.bottom < br.top || pr.top > br.bottom);
+
+        let dest = overCourt ? court : (overBench ? bench : null);
+        if (dest && dest !== player.parentElement) {
+          const dr = dest.getBoundingClientRect();
+          player.parentElement.removeChild(player);
+          dest.appendChild(player);
+          if (dest === bench) {
+            player.classList.add("bench-player");
+            player.style.position = "relative";
+            player.style.left = "";
+            player.style.top = "";
+            delete player.dataset.zone;
+          } else {
+            player.classList.remove("bench-player");
+            player.style.position = "absolute";
+            player.style.left = (pr.left - dr.left) + "px";
+            player.style.top  = (pr.top  - dr.top) + "px";
+          }
+        }
+
+        if (player.parentElement.id === "court") {
+          if (currentMode === "base") {
+            computeZonePositions();
+            snapToNearestZone(player);
+            handleZoneConflict(player, originalZone);
+          } else {
+            delete player.dataset.zone;
+          }
+        }
+
+        captureCurrentRotationState();
+      }
+
+      document.addEventListener("mousemove", move);
+      document.addEventListener("mouseup", up);
+    });
+  }
+
+  function enableEdit(player) {
+    player.addEventListener("dblclick", () => {
+      player.classList.add("editing");
+      const name = player.textContent;
+      player.innerHTML = `<input type="text" value="${name}">`;
+      const input = player.querySelector("input");
+      input.focus();
+      function finish() {
+        player.textContent = input.value || "Player";
+        player.classList.remove("editing");
+        captureCurrentRotationState();
+      }
+      input.addEventListener("blur", finish);
+      input.addEventListener("keydown", e => { if (e.key === "Enter") finish(); });
+    });
+  }
+
+  function enableLiberoToggle(player) {
+    player.addEventListener("contextmenu", e => {
+      e.preventDefault();
+      if (player.dataset.libero === "true") {
+        delete player.dataset.libero;
+        player.classList.remove("libero");
+      } else {
+        player.dataset.libero = "true";
+        player.classList.add("libero");
+      }
+      captureCurrentRotationState();
+    });
+  }
+
+  function addPlayer() {
+    const bench = document.getElementById("bench");
+    const p = document.createElement("div");
+    p.className = "player bench-player";
+    p.textContent = "Player";
+    bench.appendChild(p);
+    setupPlayer(p);
+    captureCurrentRotationState();
+  }
+
+  function removePlayer() {
+    const bench = document.getElementById("bench");
+    const list = bench.querySelectorAll(".player");
+    if (list.length) {
+      bench.removeChild(list[list.length - 1]);
+      captureCurrentRotationState();
+    }
+  }
+
+  function resetCurrentRotation() {
+    if (!confirm("Move all players to the bench for this rotation and mode?")) return;
+
+    const bench = document.getElementById("bench");
+    const players = Array.from(document.querySelectorAll(".player"));
+
+    players.forEach(p => {
+      if (p.parentElement !== bench) {
+        p.parentElement.removeChild(p);
+        bench.appendChild(p);
+      }
+      p.classList.add("bench-player");
+      p.style.position = "relative";
+      p.style.left = "";
+      p.style.top = "";
+      delete p.dataset.zone;
+    });
+
+    captureCurrentRotationState();
+  }
+
+  function newLineup() {
+    if (!confirm("Start a brand new lineup? Unsaved changes will be lost.")) return;
+
+    rotations = { base: {}, receive: {} };
+    currentRotation = 1;
+    currentMode = "base";
+    updateRotationLabel();
+
+    clearPlayers();
+
+    const court = document.getElementById("court");
+
+    function makePlayer(name, zone, isLibero=false) {
+      const p = document.createElement("div");
+      p.className = "player";
+      p.textContent = name;
+      p.dataset.zone = zone;
+      if (isLibero) {
+        p.dataset.libero = "true";
+        p.classList.add("libero");
+      }
+      court.appendChild(p);
+      return p;
+    }
+
+    makePlayer("OPP", 4);
+    makePlayer("MB", 3);
+    makePlayer("OH", 2);
+    makePlayer("OH", 5);
+    makePlayer("Libero", 6, true);
+    makePlayer("Setter", 1);
+
+    computeZonePositions();
+    document.querySelectorAll(".player").forEach(p => {
+      if (p.parentElement === court && p.dataset.zone) {
+        const pos = zonePositions[p.dataset.zone];
+        p.style.position = "absolute";
+        p.style.left = pos.left + "px";
+        p.style.top  = pos.top  + "px";
+      }
+      setupPlayer(p);
+    });
+
+    captureCurrentRotationState();
+
+    document.getElementById("lineupName").value = "";
+    document.getElementById("lineupSelect").value = "";
+  }
+
+  function autoFillRotations() {
+    if (currentMode !== "base") {
+      alert("Auto Fill uses base rotations. Turn off Serve Receive first.");
+      return;
+    }
+
+    captureCurrentRotationState();
+    normalizeRotationsStructure();
+
+    const base = rotations.base[1];
+    if (!base || !base.length) {
+      alert("Set up Rotation 1 (Base) first, then click Auto Fill Rotations.");
+      return;
+    }
+
+    for (let r = 1; r <= TOTAL_ROTATIONS; r++) {
+      const steps = r - 1;
+      const newData = base.map(item => {
+        const clone = { ...item };
+
+        if (item.parent === "court" && item.zone) {
+          const z = item.zone;
+          const newZone = ((z - 1 - steps + 6) % 6) + 1; // direction corrected
+          clone.zone = newZone;
+          clone.left = "";
+          clone.top = "";
+        } else {
+          clone.zone = null;
+        }
+
+        return clone;
+      });
+
+      rotations.base[r] = newData;
+    }
+
+    alert("Base rotations 1–6 filled from Rotation 1.");
+    renderCurrentRotation();
+  }
+
+  // ==== ROSTERS (Teams) ====
+
+  function refreshRosterSelect() {
+    const select = document.getElementById("rosterSelect");
+    const currentValue = select.value;
+    select.innerHTML = '<option value="">(none)</option>';
+    Object.keys(rosterSets).sort().forEach(name => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      if (name === currentValue) opt.selected = true;
+      select.appendChild(opt);
+    });
+  }
+
+  function setCurrentRoster(nameOrNull) {
+    currentRosterName = nameOrNull || null;
+    refreshLineupSelect();
+  }
+
+  function rosterSelectChanged() {
+    const select = document.getElementById("rosterSelect");
+    const name = select.value || "";
+    document.getElementById("rosterName").value = name;
+    setCurrentRoster(name || null);
+  }
+
+  function captureRosterFromCurrent() {
+    const names = new Set();
+    document.querySelectorAll(".player").forEach(p => {
+      const n = (p.textContent || "").trim();
+      if (n) names.add(n);
+    });
+    return Array.from(names);
+  }
+
+  function saveRoster() {
+    const rosterInput = document.getElementById("rosterName");
+    let name = rosterInput.value.trim();
+    if (!name) {
+      name = "Roster";
+      rosterInput.value = name;
+    }
+
+    const players = captureRosterFromCurrent();
+    if (!players.length) {
+      alert("No players found to save in this roster.");
+      return;
+    }
+
+    rosterSets[name] = { players };
+    localStorage.setItem(ROSTER_KEY, JSON.stringify(rosterSets));
+    refreshRosterSelect();
+    document.getElementById("rosterSelect").value = name;
+    setCurrentRoster(name);
+    alert(`Roster "${name}" saved.`);
+  }
+
+  function loadRosterToBench() {
+    const select = document.getElementById("rosterSelect");
+    const rosterInput = document.getElementById("rosterName");
+    let name = select.value || rosterInput.value.trim();
+
+    if (!name || !rosterSets[name]) {
+      alert("Select a saved roster (or type its exact name) to load.");
+      return;
+    }
+
+    if (!confirm(`Load roster "${name}" to bench? This will clear the current lineup players.`)) return;
+
+    rotations = { base: {}, receive: {} };
+    currentRotation = 1;
+    currentMode = "base";
+    updateRotationLabel();
+
+    clearPlayers();
+
+    const bench = document.getElementById("bench");
+    rosterSets[name].players.forEach(playerName => {
+      const p = document.createElement("div");
+      p.className = "player bench-player";
+      p.textContent = playerName;
+      bench.appendChild(p);
+      setupPlayer(p);
+    });
+
+    captureCurrentRotationState();
+    setCurrentRoster(name);
+    document.getElementById("rosterName").value = name;
+    alert(`Roster "${name}" loaded to bench.`);
+  }
+
+  function deleteRoster() {
+    const select = document.getElementById("rosterSelect");
+    const input = document.getElementById("rosterName");
+    let name = select.value || input.value.trim();
+
+    if (!name || !rosterSets[name]) {
+      alert("Select a saved roster (or type its exact name) to delete.");
+      return;
+    }
+
+    if (!confirm(`Delete roster "${name}"? This cannot be undone.`)) return;
+
+    delete rosterSets[name];
+    localStorage.setItem(ROSTER_KEY, JSON.stringify(rosterSets));
+    if (input.value.trim() === name) input.value = "";
+    refreshRosterSelect();
+    document.getElementById("rosterSelect").value = "";
+
+    if (currentRosterName === name) {
+      setCurrentRoster(null);
+    }
+  }
+
+  // ==== LINEUPS (Per Roster) ====
+
+  function refreshLineupSelect() {
+    const select = document.getElementById("lineupSelect");
+    const currentValue = select.value;
+    select.innerHTML = '<option value="">(none)</option>';
+
+    if (!currentRosterName) {
+      return; // no roster selected => no lineups available
+    }
+
+    Object.keys(lineupSets)
+      .filter(name => lineupSets[name].rosterName === currentRosterName)
+      .sort()
+      .forEach(name => {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        if (name === currentValue) opt.selected = true;
+        select.appendChild(opt);
+      });
+  }
+
+  function saveAll() {
+    captureCurrentRotationState();
+    normalizeRotationsStructure();
+
+    if (!currentRosterName) {
+      alert("Select or load a roster first before saving a lineup.");
+      return;
+    }
+
+    const nameInput = document.getElementById("lineupName");
+    let name = nameInput.value.trim();
+    if (!name) {
+      name = "Default";
+      nameInput.value = name;
+    }
+
+    const cloneRotations = JSON.parse(JSON.stringify(rotations));
+
+    lineupSets[name] = {
+      rosterName: currentRosterName,
+      rotations: cloneRotations,
+      currentRotation: currentRotation,
+      currentMode: currentMode
+    };
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(lineupSets));
+    refreshLineupSelect();
+    document.getElementById("lineupSelect").value = name;
+    alert(`Lineup "${name}" saved under roster "${currentRosterName}".`);
+  }
+
+  function loadAll() {
+    if (!currentRosterName) {
+      alert("Load or select a roster first before loading a lineup.");
+      return;
+    }
+
+    const select = document.getElementById("lineupSelect");
+    const name = select.value;
+    if (!name) {
+      alert("Select a lineup to load.");
+      return;
+    }
+
+    const payload = lineupSets[name];
+    if (!payload || payload.rosterName !== currentRosterName) {
+      alert("That lineup does not belong to the current roster.");
+      return;
+    }
+
+    rotations = JSON.parse(JSON.stringify(payload.rotations || {}));
+    normalizeRotationsStructure();
+    currentRotation = payload.currentRotation || 1;
+    currentMode = payload.currentMode || "base";
+    computeZonePositions();
+    renderCurrentRotation();
+    document.getElementById("lineupName").value = name;
+  }
+
+  function deleteLineup() {
+    if (!currentRosterName) {
+      alert("Select or load a roster first before deleting a lineup.");
+      return;
+    }
+
+    const select = document.getElementById("lineupSelect");
+    let name = select.value;
+
+    if (!name) {
+      const inputName = document.getElementById("lineupName").value.trim();
+      if (inputName) name = inputName;
+    }
+
+    if (!name || !lineupSets[name] || lineupSets[name].rosterName !== currentRosterName) {
+      alert("Select a saved lineup for this roster (or type its exact name) to delete.");
+      return;
+    }
+
+    if (!confirm(`Delete lineup "${name}" under roster "${currentRosterName}"? This cannot be undone.`)) return;
+
+    delete lineupSets[name];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(lineupSets));
+
+    const nameInput = document.getElementById("lineupName");
+    if (nameInput.value.trim() === name) nameInput.value = "";
+
+    refreshLineupSelect();
+    document.getElementById("lineupSelect").value = "";
+  }
+
+  function duplicateLineup() {
+    if (!currentRosterName) {
+      alert("Select or load a roster first before duplicating a lineup.");
+      return;
+    }
+
+    const select = document.getElementById("lineupSelect");
+    const nameInput = document.getElementById("lineupName");
+    const typedName = nameInput.value.trim();
+    const selectedName = select.value;
+
+    let sourceName = null;
+
+    if (selectedName && lineupSets[selectedName] && lineupSets[selectedName].rosterName === currentRosterName) {
+      sourceName = selectedName;
+    } else if (typedName && lineupSets[typedName] && lineupSets[typedName].rosterName === currentRosterName) {
+      sourceName = typedName;
+    }
+
+    let baseData;
+    if (sourceName) {
+      baseData = lineupSets[sourceName];
+    } else {
+      baseData = {
+        rosterName: currentRosterName,
+        rotations: JSON.parse(JSON.stringify(rotations)),
+        currentRotation,
+        currentMode
+      };
+    }
+
+    let defaultNewName = sourceName ? (sourceName + " Copy") : (typedName || "New Lineup");
+    let newName = prompt("New name for duplicated lineup:", defaultNewName);
+    if (!newName) return;
+    newName = newName.trim();
+    if (!newName) return;
+
+    if (lineupSets[newName] && lineupSets[newName].rosterName === currentRosterName &&
+        !confirm(`Lineup "${newName}" already exists for this roster. Overwrite it?`)) {
+      return;
+    }
+
+    lineupSets[newName] = JSON.parse(JSON.stringify(baseData));
+    lineupSets[newName].rosterName = currentRosterName;
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(lineupSets));
+    refreshLineupSelect();
+
+    document.getElementById("lineupName").value = newName;
+    document.getElementById("lineupSelect").value = newName;
+
+    const payload = lineupSets[newName];
+    rotations = JSON.parse(JSON.stringify(payload.rotations || {}));
+    normalizeRotationsStructure();
+    currentRotation = payload.currentRotation || 1;
+    currentMode = payload.currentMode || "base";
+    computeZonePositions();
+    renderCurrentRotation();
+  }
+
+  // ==== EXPORT / IMPORT LINEUPS ====
+
+  function exportLineups() {
+    if (!Object.keys(lineupSets).length) {
+      alert("No saved lineups to export. Save at least one lineup first.");
+      return;
+    }
+    const data = JSON.stringify(lineupSets);
+    const expWin = window.open("", "_blank");
+    if (!expWin) {
+      alert("Popup blocked. Allow popups for this site to export lineups.");
+      return;
+    }
+    const safeData = data.replace(/</g, "&lt;");
+    expWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Export Lineups</title>
+      </head>
+      <body>
+        <h2>Exported Lineups</h2>
+        <p>Copy and save this JSON text. You can import it later on this or another device.</p>
+        <textarea style="width:100%;height:300px;">${safeData}</textarea>
+      </body>
+      </html>
+    `);
+    expWin.document.close();
+  }
+
+  function importLineups() {
+    const json = prompt("Paste lineup JSON here:");
+    if (!json) return;
+    try {
+      const obj = JSON.parse(json);
+      if (!obj || typeof obj !== "object") throw new Error("Invalid data");
+
+      Object.keys(obj).forEach(name => {
+        const payload = obj[name];
+        if (payload && typeof payload === "object") {
+          if (!("rosterName" in payload)) {
+            payload.rosterName = null;
+          }
+        }
+      });
+
+      lineupSets = obj;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(lineupSets));
+      refreshLineupSelect();
+      alert("Lineups imported successfully.");
+    } catch (e) {
+      alert("Invalid lineup data. Make sure you pasted the full JSON from Export Lineups.");
+    }
+  }
+
+  // ==== PRINT (base + receive) ====
+
+  function printLineup() {
+    captureCurrentRotationState();
+    normalizeRotationsStructure();
+
+    const lineupName = document.getElementById("lineupName").value.trim();
+    const win = window.open("", "_blank");
+    const doc = win.document;
+
+    let html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Printable Lineup</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1 { margin-bottom: 10px; }
+    h2 { margin-top: 12px; margin-bottom: 6px; font-size: 16px; }
+    .rotations-container {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+    .rotation-block {
+      page-break-inside: avoid;
+    }
+    .mini-row {
+      display: flex;
+      gap: 10px;
+    }
+    .mini-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .mini-label {
+      font-size: 11px;
+      margin-bottom: 2px;
+    }
+    .mini-court {
+      position: relative;
+      width: ${MINI_WIDTH}px;
+      height: ${MINI_HEIGHT}px;
+      border: 2px solid #000;
+      margin-bottom: 10px;
+      box-sizing: border-box;
+    }
+    .mini-player {
+      position: absolute;
+      width: 70px;
+      height: 28px;
+      border: 1px solid #000;
+      border-radius: 14px;
+      text-align: center;
+      line-height: 28px;
+      font-size: 11px;
+      box-sizing: border-box;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      background: #000000;
+      color: #ffffff;
+    }
+    .mini-player.libero {
+      background: #ffffff;
+      color: #000000;
+      border-color: #000000;
+      font-weight: bold;
+    }
+    .zone4 { top: 10px; left: 10px; }
+    .zone3 { top: 10px; left: 95px; }
+    .zone2 { top: 10px; left: 180px; }
+    .zone5 { top: 100px; left: 10px; }
+    .zone6 { top: 100px; left: 95px; }
+    .zone1 { top: 100px; left: 180px; }
+  </style>
+</head>
+<body>
+  <h1>Lineup ${lineupName ? ("- " + lineupName) : ""}</h1>
+  <div class="rotations-container">
+`;
+
+    for (let r = 1; r <= TOTAL_ROTATIONS; r++) {
+      const baseData = (rotations.base && rotations.base[r]) ? rotations.base[r] : [];
+      const receiveData = (rotations.receive && rotations.receive[r] && rotations.receive[r].length)
+        ? rotations.receive[r]
+        : baseData;
+
+      const basePos = {
+        1: { name: "", libero: false },
+        2: { name: "", libero: false },
+        3: { name: "", libero: false },
+        4: { name: "", libero: false },
+        5: { name: "", libero: false },
+        6: { name: "", libero: false }
+      };
+
+      baseData.forEach(item => {
+        if (item.parent === "court" && item.zone) {
+          basePos[item.zone] = {
+            name: item.name,
+            libero: !!item.libero
+          };
+        }
+      });
+
+      let receivePlayersHtml = "";
+
+      const margin = 5;
+      const effectiveCourtHeight = COURT_HEIGHT - NET_TOP_OFFSET;
+      const scale = Math.min(
+        (MINI_WIDTH  - 2 * margin) / COURT_WIDTH,
+        (MINI_HEIGHT - 2 * margin) / effectiveCourtHeight
+      );
+      const maxX = MINI_WIDTH  - margin - 70;
+      const maxY = MINI_HEIGHT - margin - 28;
+
+      receiveData.forEach(item => {
+        if (item.parent !== "court") return;
+        const name = item.name || "";
+        const leftStr = item.left || "0px";
+        const topStr  = item.top  || "0px";
+        const left = parseFloat(leftStr) || 0;
+        const top  = parseFloat(topStr)  || 0;
+
+        const effectiveTop = Math.max(0, top - NET_TOP_OFFSET);
+
+        let miniLeft = left * scale + margin;
+        let miniTop  = effectiveTop * scale + margin;
+
+        miniLeft = Math.max(margin, Math.min(maxX, miniLeft));
+        miniTop  = Math.max(margin, Math.min(maxY, miniTop));
+
+        const liberoClass = item.libero ? " libero" : "";
+
+        receivePlayersHtml += `
+          <div class="mini-player${liberoClass}" style="left:${miniLeft.toFixed(1)}px; top:${miniTop.toFixed(1)}px;">
+            ${name}
+          </div>
+        `;
+      });
+
+      html += `
+    <div class="rotation-block">
+      <h2>Rotation ${r}</h2>
+      <div class="mini-row">
+        <div class="mini-wrapper">
+          <div class="mini-label">Base</div>
+          <div class="mini-court">
+            <div class="mini-player zone4${basePos[4].libero ? ' libero' : ''}">${basePos[4].name}</div>
+            <div class="mini-player zone3${basePos[3].libero ? ' libero' : ''}">${basePos[3].name}</div>
+            <div class="mini-player zone2${basePos[2].libero ? ' libero' : ''}">${basePos[2].name}</div>
+            <div class="mini-player zone5${basePos[5].libero ? ' libero' : ''}">${basePos[5].name}</div>
+            <div class="mini-player zone6${basePos[6].libero ? ' libero' : ''}">${basePos[6].name}</div>
+            <div class="mini-player zone1${basePos[1].libero ? ' libero' : ''}">${basePos[1].name}</div>
+          </div>
+        </div>
+        <div class="mini-wrapper">
+          <div class="mini-label">Serve Receive</div>
+          <div class="mini-court">
+            ${receivePlayersHtml}
+          </div>
+        </div>
+      </div>
+    </div>
+`;
+    }
+
+    html += `
+  </div>
+</body>
+</html>
+`;
+
+    doc.open();
+    doc.write(html);
+    doc.close();
+    win.focus();
+  }
+
+  // ==== LOAD FROM STORAGE ====
+
+  function loadLineupSetsFromStorage() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) || {};
+        Object.keys(parsed).forEach(name => {
+          const payload = parsed[name];
+          if (payload && typeof payload === "object") {
+            if (!("rosterName" in payload)) {
+              payload.rosterName = null;
+            }
+          }
+        });
+        lineupSets = parsed;
+      } catch {
+        lineupSets = {};
+      }
+    }
+
+    if (!Object.keys(lineupSets).length) {
+      const legacy = localStorage.getItem(LEGACY_KEY);
+      if (legacy) {
+        try {
+          const payload = JSON.parse(legacy);
+          lineupSets["Legacy"] = {
+            rosterName: null,
+            rotations: payload.rotations || payload,
+            currentRotation: payload.currentRotation || 1,
+            currentMode: payload.currentMode || "base"
+          };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(lineupSets));
+          localStorage.removeItem(LEGACY_KEY);
+        } catch {}
+      }
+    }
+
+    refreshLineupSelect();
+  }
+
+  function loadRosterSetsFromStorage() {
+    const raw = localStorage.getItem(ROSTER_KEY);
+    if (raw) {
+      try {
+        rosterSets = JSON.parse(raw) || {};
+      } catch {
+        rosterSets = {};
+      }
+    }
+    refreshRosterSelect();
+  }
+
+  window.addEventListener("load", () => {
+    computeZonePositions();
+    initPlayersFromDOM();
+    normalizeRotationsStructure();
+    captureCurrentRotationState();
+    updateRotationLabel();
+    loadLineupSetsFromStorage();
+    loadRosterSetsFromStorage();
+
+    window.addEventListener("resize", () => {
+      computeZonePositions();
+      renderCurrentRotation();
+    });
+  });
+</script>
+
+</body>
+</html>
