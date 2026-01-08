@@ -98,12 +98,28 @@
     background: #000000;
     color: #ffffff;
     text-align: center;
-    line-height: 40px;
     border-radius: 20px;
     cursor: grab;
     user-select: none;
     box-sizing: border-box;
     border: 2px solid #000000;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    line-height: 1.1;
+    padding: 2px 4px;
+    font-size: 12px;
+  }
+
+  .player-name {
+    font-weight: normal;
+  }
+
+  .player-number {
+    font-size: 11px;
+    opacity: 0.9;
   }
 
   /* Bench layout */
@@ -124,10 +140,17 @@
     width: 80px;
     border: none;
     text-align: center;
-    font-size: 14px;
+    font-size: 12px;
     outline: none;
-    background: transparent;
-    color: inherit;
+    background: #ffffff;
+    color: #000000;
+    box-sizing: border-box;
+    margin-bottom: 2px;
+    border-radius: 4px;
+  }
+
+  .player input:last-child {
+    margin-bottom: 0;
   }
 
   #lineupName, #lineupSelect, #rotationSelect,
@@ -183,6 +206,11 @@
     <button onclick="resetCurrentRotation()">Reset Lineup</button>
     <button onclick="newLineup()">New Lineup</button>
     <button onclick="autoFillRotations()">Auto Fill Rotations</button>
+
+    <span>Print labels:</span>
+    <label><input type="radio" name="printLabel" id="printLabelName" value="name" checked> Name</label>
+    <label><input type="radio" name="printLabel" id="printLabelNumber" value="number"> Number</label>
+
     <button onclick="printLineup()">Print Rotations</button>
   </div>
 
@@ -199,9 +227,12 @@
     <button onclick="saveRoster()">Save Roster</button>
     <button onclick="loadRosterToBench()">Load Roster to Bench</button>
     <button onclick="deleteRoster()">Delete Roster</button>
+
+    <button onclick="exportTeam()">Export Team</button>
+    <button onclick="importTeam()">Import Team</button>
   </div>
 
-  <!-- ROW 4: LINEUPS (per roster) + export/import -->
+  <!-- ROW 4: LINEUPS (per roster) + export/import lineup -->
   <div class="controls-row">
     <span>Lineup name:</span>
     <input id="lineupName" type="text" placeholder="e.g. Varsity A" />
@@ -216,8 +247,8 @@
     <button onclick="deleteLineup()">Delete Lineup</button>
     <button onclick="duplicateLineup()">Duplicate Lineup</button>
 
-    <button onclick="exportLineups()">Export Lineups</button>
-    <button onclick="importLineups()">Import Lineups</button>
+    <button onclick="exportLineupSingle()">Export Lineup</button>
+    <button onclick="importLineupSingle()">Import Lineup</button>
   </div>
 </div>
 
@@ -253,7 +284,7 @@
 
 <script>
   const TOTAL_ROTATIONS = 6;
-  const STORAGE_KEY = "volleyballLineupSets";  // lineups (now tied to rosterName)
+  const STORAGE_KEY = "volleyballLineupSets";  // lineups (tied to rosterName)
   const LEGACY_KEY = "volleyballRotations";    // older single-lineup format
   const ROSTER_KEY = "volleyballRosters";      // rosters (team player lists)
 
@@ -311,6 +342,15 @@
     });
   }
 
+  function updatePlayerDisplay(p) {
+    const name = p.dataset.name || "";
+    const number = p.dataset.number || "";
+    p.innerHTML = `
+      <div class="player-name">${name}</div>
+      <div class="player-number">${number}</div>
+    `;
+  }
+
   function setupPlayer(p) {
     enableDrag(p);
     enableEdit(p);
@@ -320,6 +360,15 @@
   function initPlayersFromDOM() {
     const court = document.getElementById("court");
     document.querySelectorAll(".player").forEach(p => {
+      if (!p.dataset.name) {
+        const text = (p.textContent || "").trim();
+        p.dataset.name = text || "Player";
+      }
+      if (!p.dataset.number) {
+        p.dataset.number = "";
+      }
+      updatePlayerDisplay(p);
+
       if (p.parentElement === court && p.dataset.zone) {
         const pos = zonePositions[p.dataset.zone];
         p.style.position = "absolute";
@@ -335,7 +384,8 @@
   function captureCurrentRotationState() {
     normalizeRotationsStructure();
     const list = Array.from(document.querySelectorAll(".player")).map(p => ({
-      name: p.textContent,
+      name: p.dataset.name || "",
+      number: p.dataset.number || "",
       parent: p.parentElement.id,
       zone: p.dataset.zone ? +p.dataset.zone : null,
       left: p.style.left,
@@ -360,7 +410,12 @@
     data.forEach(item => {
       const p = document.createElement("div");
       p.className = "player";
-      p.textContent = item.name;
+
+      const name = item.name || "";
+      const number = item.number || "";
+      p.dataset.name = name;
+      p.dataset.number = number;
+      updatePlayerDisplay(p);
 
       if (item.libero) {
         p.dataset.libero = "true";
@@ -563,6 +618,7 @@
       other.style.left = "";
       other.style.top = "";
       delete other.dataset.zone;
+      updatePlayerDisplay(other);
     }
   }
 
@@ -626,6 +682,7 @@
             player.style.left = "";
             player.style.top = "";
             delete player.dataset.zone;
+            updatePlayerDisplay(player);
           } else {
             player.classList.remove("bench-player");
             player.style.position = "absolute";
@@ -644,6 +701,19 @@
           }
         }
 
+        // NEW: if we end up on the bench (even if we started there),
+        // snap back into the stacked list at the bottom.
+        const benchEl = document.getElementById("bench");
+        if (player.parentElement === benchEl) {
+          benchEl.appendChild(player); // move to bottom of bench list
+          player.classList.add("bench-player");
+          player.style.position = "relative";
+          player.style.left = "";
+          player.style.top = "";
+          delete player.dataset.zone;
+          updatePlayerDisplay(player);
+        }
+
         captureCurrentRotationState();
       }
 
@@ -654,18 +724,50 @@
 
   function enableEdit(player) {
     player.addEventListener("dblclick", () => {
+      if (player.classList.contains("editing")) return;
       player.classList.add("editing");
-      const name = player.textContent;
-      player.innerHTML = `<input type="text" value="${name}">`;
-      const input = player.querySelector("input");
-      input.focus();
+
+      const currentName = player.dataset.name || "";
+      const currentNumber = player.dataset.number || "";
+
+      player.innerHTML = `
+        <input class="edit-name" type="text" value="${currentName}" placeholder="Name">
+        <input class="edit-number" type="text" value="${currentNumber}" placeholder="#"/>
+      `;
+
+      const nameInput = player.querySelector(".edit-name");
+      const numberInput = player.querySelector(".edit-number");
+      nameInput.focus();
+
+      let finished = false;
       function finish() {
-        player.textContent = input.value || "Player";
+        if (finished) return;
+        finished = true;
+        const newName = nameInput.value.trim() || "Player";
+        const newNumber = numberInput.value.trim();
+
+        player.dataset.name = newName;
+        player.dataset.number = newNumber;
         player.classList.remove("editing");
+        updatePlayerDisplay(player);
         captureCurrentRotationState();
       }
-      input.addEventListener("blur", finish);
-      input.addEventListener("keydown", e => { if (e.key === "Enter") finish(); });
+
+      nameInput.addEventListener("keydown", e => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          finish();
+        }
+      });
+      numberInput.addEventListener("keydown", e => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          finish();
+        }
+      });
+
+      nameInput.addEventListener("blur", () => setTimeout(finish, 0));
+      numberInput.addEventListener("blur", () => setTimeout(finish, 0));
     });
   }
 
@@ -687,7 +789,9 @@
     const bench = document.getElementById("bench");
     const p = document.createElement("div");
     p.className = "player bench-player";
-    p.textContent = "Player";
+    p.dataset.name = "Player";
+    p.dataset.number = "";
+    updatePlayerDisplay(p);
     bench.appendChild(p);
     setupPlayer(p);
     captureCurrentRotationState();
@@ -718,6 +822,7 @@
       p.style.left = "";
       p.style.top = "";
       delete p.dataset.zone;
+      updatePlayerDisplay(p);
     });
 
     captureCurrentRotationState();
@@ -738,12 +843,14 @@
     function makePlayer(name, zone, isLibero=false) {
       const p = document.createElement("div");
       p.className = "player";
-      p.textContent = name;
+      p.dataset.name = name;
+      p.dataset.number = "";
       p.dataset.zone = zone;
       if (isLibero) {
         p.dataset.libero = "true";
         p.classList.add("libero");
       }
+      updatePlayerDisplay(p);
       court.appendChild(p);
       return p;
     }
@@ -794,7 +901,7 @@
 
         if (item.parent === "court" && item.zone) {
           const z = item.zone;
-          const newZone = ((z - 1 - steps + 6) % 6) + 1; // direction corrected
+          const newZone = ((z - 1 - steps + 6) % 6) + 1; // correct direction
           clone.zone = newZone;
           clone.left = "";
           clone.top = "";
@@ -842,7 +949,7 @@
   function captureRosterFromCurrent() {
     const names = new Set();
     document.querySelectorAll(".player").forEach(p => {
-      const n = (p.textContent || "").trim();
+      const n = (p.dataset.name || "").trim();
       if (n) names.add(n);
     });
     return Array.from(names);
@@ -893,7 +1000,9 @@
     rosterSets[name].players.forEach(playerName => {
       const p = document.createElement("div");
       p.className = "player bench-player";
-      p.textContent = playerName;
+      p.dataset.name = playerName;
+      p.dataset.number = "";
+      updatePlayerDisplay(p);
       bench.appendChild(p);
       setupPlayer(p);
     });
@@ -914,7 +1023,7 @@
       return;
     }
 
-    if (!confirm(`Delete roster "${name}"? This cannot be undone.`)) return;
+    if (!confirm(`Delete roster "${name}"? This will NOT delete associated lineups automatically.\n(You can clean those up separately if you want.)`)) return;
 
     delete rosterSets[name];
     localStorage.setItem(ROSTER_KEY, JSON.stringify(rosterSets));
@@ -1100,17 +1209,39 @@
     renderCurrentRotation();
   }
 
-  // ==== EXPORT / IMPORT LINEUPS ====
+  // ==== EXPORT / IMPORT TEAM (Roster + all its lineups) ====
 
-  function exportLineups() {
-    if (!Object.keys(lineupSets).length) {
-      alert("No saved lineups to export. Save at least one lineup first.");
+  function exportTeam() {
+    if (!currentRosterName) {
+      alert("Select a roster (team) first.");
       return;
     }
-    const data = JSON.stringify(lineupSets);
+    const roster = rosterSets[currentRosterName];
+    if (!roster) {
+      alert(`No roster data found for "${currentRosterName}". Save the roster first.`);
+      return;
+    }
+
+    const teamLineups = {};
+    Object.entries(lineupSets).forEach(([name, payload]) => {
+      if (payload.rosterName === currentRosterName) {
+        teamLineups[name] = {
+          rotations: payload.rotations,
+          currentRotation: payload.currentRotation,
+          currentMode: payload.currentMode
+        };
+      }
+    });
+
+    const data = JSON.stringify({
+      rosterName: currentRosterName,
+      roster,
+      lineups: teamLineups
+    });
+
     const expWin = window.open("", "_blank");
     if (!expWin) {
-      alert("Popup blocked. Allow popups for this site to export lineups.");
+      alert("Popup blocked. Allow popups for this site to export.");
       return;
     }
     const safeData = data.replace(/</g, "&lt;");
@@ -1119,11 +1250,11 @@
       <html>
       <head>
         <meta charset="UTF-8">
-        <title>Export Lineups</title>
+        <title>Export Team</title>
       </head>
       <body>
-        <h2>Exported Lineups</h2>
-        <p>Copy and save this JSON text. You can import it later on this or another device.</p>
+        <h2>Exported Team: ${currentRosterName}</h2>
+        <p>Copy and save this JSON. You can import this team (roster + all its lineups) later.</p>
         <textarea style="width:100%;height:300px;">${safeData}</textarea>
       </body>
       </html>
@@ -1131,28 +1262,164 @@
     expWin.document.close();
   }
 
-  function importLineups() {
-    const json = prompt("Paste lineup JSON here:");
+  function importTeam() {
+    const json = prompt("Paste TEAM JSON here (roster + lineups):");
     if (!json) return;
+
     try {
       const obj = JSON.parse(json);
       if (!obj || typeof obj !== "object") throw new Error("Invalid data");
 
-      Object.keys(obj).forEach(name => {
-        const payload = obj[name];
-        if (payload && typeof payload === "object") {
-          if (!("rosterName" in payload)) {
-            payload.rosterName = null;
-          }
-        }
-      });
+      let { rosterName, roster, lineups } = obj;
+      if (!roster || !Array.isArray(roster.players)) {
+        throw new Error("Missing or invalid roster.players");
+      }
 
-      lineupSets = obj;
+      if (!rosterName) {
+        rosterName = prompt("No rosterName found in data. Enter a name for this team:", "Imported Team");
+        if (!rosterName) return;
+        rosterName = rosterName.trim();
+        if (!rosterName) return;
+      }
+
+      if (rosterSets[rosterName] && !confirm(`Roster "${rosterName}" already exists. Overwrite it?`)) {
+        return;
+      }
+
+      rosterSets[rosterName] = { players: roster.players };
+      localStorage.setItem(ROSTER_KEY, JSON.stringify(rosterSets));
+
+      if (lineups && typeof lineups === "object") {
+        Object.entries(lineups).forEach(([lname, lval]) => {
+          lineupSets[lname] = {
+            rosterName,
+            rotations: lval.rotations || {},
+            currentRotation: lval.currentRotation || 1,
+            currentMode: lval.currentMode || "base"
+          };
+        });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(lineupSets));
+      }
+
+      refreshRosterSelect();
+      document.getElementById("rosterName").value = rosterName;
+      document.getElementById("rosterSelect").value = rosterName;
+      setCurrentRoster(rosterName);
+
+      alert(`Team "${rosterName}" imported successfully (roster + ${lineups ? Object.keys(lineups).length : 0} lineups).`);
+    } catch (e) {
+      alert("Invalid TEAM data. Make sure you pasted the full JSON from Export Team.");
+    }
+  }
+
+  // ==== EXPORT / IMPORT single LINEUP (within current roster) ====
+
+  function exportLineupSingle() {
+    if (!currentRosterName) {
+      alert("Select a roster first.");
+      return;
+    }
+    const select = document.getElementById("lineupSelect");
+    const name = select.value || document.getElementById("lineupName").value.trim();
+    if (!name) {
+      alert("Select or type a lineup name to export.");
+      return;
+    }
+    const payload = lineupSets[name];
+    if (!payload || payload.rosterName !== currentRosterName) {
+      alert("That lineup does not exist for this roster.");
+      return;
+    }
+
+    const data = JSON.stringify({
+      rosterName: currentRosterName,
+      lineupName: name,
+      lineup: {
+        rotations: payload.rotations,
+        currentRotation: payload.currentRotation,
+        currentMode: payload.currentMode
+      }
+    });
+
+    const expWin = window.open("", "_blank");
+    if (!expWin) {
+      alert("Popup blocked. Allow popups for this site to export.");
+      return;
+    }
+    const safeData = data.replace(/</g, "&lt;");
+    expWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Export Lineup</title>
+      </head>
+      <body>
+        <h2>Exported Lineup "${name}" (Roster: ${currentRosterName})</h2>
+        <p>Copy and save this JSON. You can import this lineup into a roster later.</p>
+        <textarea style="width:100%;height:300px;">${safeData}</textarea>
+      </body>
+      </html>
+    `);
+    expWin.document.close();
+  }
+
+  function importLineupSingle() {
+    if (!currentRosterName) {
+      alert("Select or import a roster (team) first, then import a lineup into it.");
+      return;
+    }
+
+    const json = prompt("Paste LINEUP JSON here:");
+    if (!json) return;
+
+    try {
+      const obj = JSON.parse(json);
+      if (!obj || typeof obj !== "object") throw new Error("Invalid data");
+
+      let { rosterName, lineupName, lineup } = obj;
+
+      if (!lineup) {
+        lineup = obj;
+      }
+
+      if (!lineupName) {
+        lineupName = prompt("No lineupName found in data. Enter a name for this lineup:", "Imported Lineup");
+        if (!lineupName) return;
+        lineupName = lineupName.trim();
+        if (!lineupName) return;
+      }
+
+      if (rosterName && rosterName !== currentRosterName) {
+        if (!confirm(`This lineup was originally saved for roster "${rosterName}". Import into current roster "${currentRosterName}" anyway?`)) {
+          return;
+        }
+      }
+
+      let finalName = lineupName;
+
+      if (lineupSets[finalName] && lineupSets[finalName].rosterName === currentRosterName) {
+        const newName = prompt(`Lineup "${finalName}" already exists for this roster. Enter a new name (or keep to overwrite):`, finalName);
+        if (!newName) return;
+        finalName = newName.trim();
+        if (!finalName) return;
+      }
+
+      lineupSets[finalName] = {
+        rosterName: currentRosterName,
+        rotations: lineup.rotations || {},
+        currentRotation: lineup.currentRotation || 1,
+        currentMode: lineup.currentMode || "base"
+      };
+
       localStorage.setItem(STORAGE_KEY, JSON.stringify(lineupSets));
       refreshLineupSelect();
-      alert("Lineups imported successfully.");
+      document.getElementById("lineupName").value = finalName;
+      document.getElementById("lineupSelect").value = finalName;
+
+      alert(`Lineup "${finalName}" imported into roster "${currentRosterName}".`);
     } catch (e) {
-      alert("Invalid lineup data. Make sure you pasted the full JSON from Export Lineups.");
+      alert("Invalid LINEUP data. Make sure you pasted the full JSON from Export Lineup.");
     }
   }
 
@@ -1163,6 +1430,9 @@
     normalizeRotationsStructure();
 
     const lineupName = document.getElementById("lineupName").value.trim();
+    const printMode =
+      (document.getElementById("printLabelNumber")?.checked) ? "number" : "name";
+
     const win = window.open("", "_blank");
     const doc = win.document;
 
@@ -1246,22 +1516,26 @@
         : baseData;
 
       const basePos = {
-        1: { name: "", libero: false },
-        2: { name: "", libero: false },
-        3: { name: "", libero: false },
-        4: { name: "", libero: false },
-        5: { name: "", libero: false },
-        6: { name: "", libero: false }
+        1: { name: "", number: "", libero: false },
+        2: { name: "", number: "", libero: false },
+        3: { name: "", number: "", libero: false },
+        4: { name: "", number: "", libero: false },
+        5: { name: "", number: "", libero: false },
+        6: { name: "", number: "", libero: false }
       };
 
       baseData.forEach(item => {
         if (item.parent === "court" && item.zone) {
           basePos[item.zone] = {
-            name: item.name,
+            name: item.name || "",
+            number: item.number || "",
             libero: !!item.libero
           };
         }
       });
+
+      const labelFor = (obj) =>
+        (printMode === "number" ? (obj.number || "") : (obj.name || ""));
 
       let receivePlayersHtml = "";
 
@@ -1276,7 +1550,9 @@
 
       receiveData.forEach(item => {
         if (item.parent !== "court") return;
-        const name = item.name || "";
+        const label = (printMode === "number"
+          ? (item.number || "")
+          : (item.name || ""));
         const leftStr = item.left || "0px";
         const topStr  = item.top  || "0px";
         const left = parseFloat(leftStr) || 0;
@@ -1294,7 +1570,7 @@
 
         receivePlayersHtml += `
           <div class="mini-player${liberoClass}" style="left:${miniLeft.toFixed(1)}px; top:${miniTop.toFixed(1)}px;">
-            ${name}
+            ${label}
           </div>
         `;
       });
@@ -1306,12 +1582,12 @@
         <div class="mini-wrapper">
           <div class="mini-label">Base</div>
           <div class="mini-court">
-            <div class="mini-player zone4${basePos[4].libero ? ' libero' : ''}">${basePos[4].name}</div>
-            <div class="mini-player zone3${basePos[3].libero ? ' libero' : ''}">${basePos[3].name}</div>
-            <div class="mini-player zone2${basePos[2].libero ? ' libero' : ''}">${basePos[2].name}</div>
-            <div class="mini-player zone5${basePos[5].libero ? ' libero' : ''}">${basePos[5].name}</div>
-            <div class="mini-player zone6${basePos[6].libero ? ' libero' : ''}">${basePos[6].name}</div>
-            <div class="mini-player zone1${basePos[1].libero ? ' libero' : ''}">${basePos[1].name}</div>
+            <div class="mini-player zone4${basePos[4].libero ? ' libero' : ''}">${labelFor(basePos[4])}</div>
+            <div class="mini-player zone3${basePos[3].libero ? ' libero' : ''}">${labelFor(basePos[3])}</div>
+            <div class="mini-player zone2${basePos[2].libero ? ' libero' : ''}">${labelFor(basePos[2])}</div>
+            <div class="mini-player zone5${basePos[5].libero ? ' libero' : ''}">${labelFor(basePos[5])}</div>
+            <div class="mini-player zone6${basePos[6].libero ? ' libero' : ''}">${labelFor(basePos[6])}</div>
+            <div class="mini-player zone1${basePos[1].libero ? ' libero' : ''}">${labelFor(basePos[1])}</div>
           </div>
         </div>
         <div class="mini-wrapper">
