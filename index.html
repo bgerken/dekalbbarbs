@@ -722,54 +722,91 @@
     });
   }
 
-  function enableEdit(player) {
-    player.addEventListener("dblclick", () => {
-      if (player.classList.contains("editing")) return;
-      player.classList.add("editing");
+ function enableEdit(player) {
+  player.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-      const currentName = player.dataset.name || "";
-      const currentNumber = player.dataset.number || "";
+    if (player.classList.contains("editing")) return;
+    player.classList.add("editing");
 
-      player.innerHTML = `
-        <input class="edit-name" type="text" value="${currentName}" placeholder="Name">
-        <input class="edit-number" type="text" value="${currentNumber}" placeholder="#"/>
-      `;
+    const currentName = player.dataset.name || "";
+    const currentNumber = player.dataset.number || "";
 
-      const nameInput = player.querySelector(".edit-name");
-      const numberInput = player.querySelector(".edit-number");
-      nameInput.focus();
+    player.innerHTML = `
+      <input class="edit-name" type="text" value="${escapeHtmlAttr(currentName)}" placeholder="Name" />
+      <input class="edit-number" type="text" value="${escapeHtmlAttr(currentNumber)}" placeholder="#" />
+    `;
 
-      let finished = false;
-      function finish() {
-        if (finished) return;
-        finished = true;
-        const newName = nameInput.value.trim() || "Player";
-        const newNumber = numberInput.value.trim();
+    const nameInput = player.querySelector(".edit-name");
+    const numberInput = player.querySelector(".edit-number");
+
+    // Prevent drag/select logic from stealing clicks while editing
+    [nameInput, numberInput].forEach(inp => {
+      inp.addEventListener("mousedown", ev => ev.stopPropagation());
+      inp.addEventListener("click", ev => ev.stopPropagation());
+      inp.addEventListener("dblclick", ev => ev.stopPropagation());
+    });
+
+    let cancelled = false;
+
+    function finish(save) {
+      if (!player.classList.contains("editing")) return;
+
+      if (save && !cancelled) {
+        const newName = (nameInput.value || "").trim() || "Player";
+        const newNumber = (numberInput.value || "").trim();
 
         player.dataset.name = newName;
         player.dataset.number = newNumber;
-        player.classList.remove("editing");
-        updatePlayerDisplay(player);
-        captureCurrentRotationState();
       }
 
-      nameInput.addEventListener("keydown", e => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          finish();
-        }
-      });
-      numberInput.addEventListener("keydown", e => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          finish();
-        }
-      });
+      player.classList.remove("editing");
+      updatePlayerDisplay(player);
+      captureCurrentRotationState();
 
-      nameInput.addEventListener("blur", () => setTimeout(finish, 0));
-      numberInput.addEventListener("blur", () => setTimeout(finish, 0));
-    });
-  }
+      // Clean up the outside-click listener
+      document.removeEventListener("mousedown", outsideClickHandler, true);
+    }
+
+    function outsideClickHandler(ev) {
+      // If click is outside this player bubble, finish + save
+      if (!player.contains(ev.target)) finish(true);
+    }
+
+    // Use capture phase so we catch the outside click before other handlers
+    document.addEventListener("mousedown", outsideClickHandler, true);
+
+    function onKeyDown(ev) {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        finish(true);
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        cancelled = true;
+        finish(false);
+      }
+      // Tab behavior: browser default already switches between inputs
+      // so we don't override it.
+    }
+
+    nameInput.addEventListener("keydown", onKeyDown);
+    numberInput.addEventListener("keydown", onKeyDown);
+
+    // Start editing in the name line
+    nameInput.focus();
+    nameInput.select();
+  });
+}
+
+// Helper to prevent quote-breaking in input values
+function escapeHtmlAttr(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 
   function enableLiberoToggle(player) {
     player.addEventListener("contextmenu", e => {
